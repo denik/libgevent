@@ -27,23 +27,23 @@ run-all-tests: $(ALL_TESTS)
 
 tests-static-g: stacklet.c stacklet.h tests.c
 	gcc -Wall -g -o run_tests_static_g stacklet.c tests.c ${DEBUG}
-	run_tests_static_g
+	./run_tests_static_g
 
 tests-static-o: stacklet.c stacklet.h tests.c
 	gcc -Wall -g -O2 -o run_tests_static_o stacklet.c tests.c ${DEBUG}
-	run_tests_static_o
+	./run_tests_static_o
 
 tests-dynamic-g: stacklet_g.so tests.c
 	gcc -Wall -g -o run_tests_dynamic_g stacklet_g.so tests.c ${DEBUG}
-	LD_LIBRARY_PATH=. run_tests_dynamic_g
+	LD_LIBRARY_PATH=. ./run_tests_dynamic_g
 
 tests-dynamic-o: stacklet.so tests.c
 	gcc -Wall -g -O2 -o run_tests_dynamic_o stacklet.so tests.c ${DEBUG}
-	LD_LIBRARY_PATH=. run_tests_dynamic_o
+	LD_LIBRARY_PATH=. ./run_tests_dynamic_o
 
 tests-repeat: tests
-	python runtests.py run_tests_static_g > /dev/null
-	python runtests.py run_tests_static_o > /dev/null
-	LD_LIBRARY_PATH=. python runtests.py run_tests_dynamic_g > /dev/null
-	LD_LIBRARY_PATH=. python runtests.py run_tests_dynamic_o > /dev/null
+	python runtests.py ./run_tests_static_g > /dev/null
+	python runtests.py ./run_tests_static_o > /dev/null
+	LD_LIBRARY_PATH=. python ./runtests.py run_tests_dynamic_g > /dev/null
+	LD_LIBRARY_PATH=. python ./runtests.py run_tests_dynamic_o > /dev/null
 	@echo "*** All tests passed repeatedly ***"

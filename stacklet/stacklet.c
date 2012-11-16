@@ -54,9 +54,9 @@ struct stacklet_s {
     struct stacklet_s *stack_prev;
 };
 
-void *(*_stacklet_switchstack)(void*(*)(void*, void*),
+static void *(*_stacklet_switchstack)(void*(*)(void*, void*),
                                void*(*)(void*, void*), void*) = NULL;
-void (*_stacklet_initialstub)(struct stacklet_thread_s *,
+static void (*_stacklet_initialstub)(struct stacklet_thread_s *,
                               stacklet_run_fn, void *) = NULL;
 
 struct stacklet_thread_s {
@@ -258,7 +258,7 @@ static void g_initialstub(struct stacklet_thread_s *thrd,
 
 /************************************************************/
 
-stacklet_thread_handle stacklet_newthread(void)
+static stacklet_thread_handle stacklet_newthread(void)
 {
     struct stacklet_thread_s *thrd;
 
@@ -275,12 +275,12 @@ stacklet_thread_handle stacklet_newthread(void)
     return thrd;
 }
 
-void stacklet_deletethread(stacklet_thread_handle thrd)
+static void stacklet_deletethread(stacklet_thread_handle thrd)
 {
     free(thrd);
 }
 
-stacklet_handle stacklet_new(stacklet_thread_handle thrd,
+static stacklet_handle stacklet_new(stacklet_thread_handle thrd,
                              stacklet_run_fn run, void *run_arg)
 {
     long stackmarker;
@@ -293,7 +293,7 @@ stacklet_handle stacklet_new(stacklet_thread_handle thrd,
     return thrd->g_source;
 }
 
-stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
+static stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
                                 stacklet_handle target)
 {
     long stackmarker;
@@ -305,7 +305,7 @@ stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
     return thrd->g_source;
 }
 
-void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target)
+static void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target)
 {
     /* remove 'target' from the chained list 'unsaved_stack', if it is there */
     struct stacklet_s **pp = &thrd->g_stack_chain_head;
@@ -317,7 +317,7 @@ void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target)
     free(target);
 }
 
-char **_stacklet_translate_pointer(stacklet_handle context, char **ptr)
+static char **_stacklet_translate_pointer(stacklet_handle context, char **ptr)
 {
   char *p = (char *)ptr;
   long delta;
