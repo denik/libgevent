@@ -3,6 +3,7 @@
  */
 
 #include "stacklet.h"
+#include <stdio.h>
 
 #include <stddef.h>
 #include <assert.h>
@@ -258,7 +259,7 @@ static void g_initialstub(struct stacklet_thread_s *thrd,
 
 /************************************************************/
 
-static stacklet_thread_handle stacklet_newthread(void)
+stacklet_thread_handle stacklet_newthread(void)
 {
     struct stacklet_thread_s *thrd;
 
@@ -275,12 +276,12 @@ static stacklet_thread_handle stacklet_newthread(void)
     return thrd;
 }
 
-static void stacklet_deletethread(stacklet_thread_handle thrd)
+void stacklet_deletethread(stacklet_thread_handle thrd)
 {
     free(thrd);
 }
 
-static stacklet_handle stacklet_new(stacklet_thread_handle thrd,
+stacklet_handle stacklet_new(stacklet_thread_handle thrd,
                              stacklet_run_fn run, void *run_arg)
 {
     long stackmarker;
@@ -293,7 +294,7 @@ static stacklet_handle stacklet_new(stacklet_thread_handle thrd,
     return thrd->g_source;
 }
 
-static stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
+stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
                                 stacklet_handle target)
 {
     long stackmarker;
@@ -305,7 +306,7 @@ static stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
     return thrd->g_source;
 }
 
-static void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target)
+void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target)
 {
     /* remove 'target' from the chained list 'unsaved_stack', if it is there */
     struct stacklet_s **pp = &thrd->g_stack_chain_head;
@@ -317,7 +318,7 @@ static void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target
     free(target);
 }
 
-static char **_stacklet_translate_pointer(stacklet_handle context, char **ptr)
+char **_stacklet_translate_pointer(stacklet_handle context, char **ptr)
 {
   char *p = (char *)ptr;
   long delta;

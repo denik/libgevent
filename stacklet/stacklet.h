@@ -21,8 +21,8 @@ typedef struct stacklet_s *stacklet_handle;
  */
 typedef struct stacklet_thread_s *stacklet_thread_handle;
 
-static stacklet_thread_handle stacklet_newthread(void);
-static void stacklet_deletethread(stacklet_thread_handle thrd);
+stacklet_thread_handle stacklet_newthread(void);
+void stacklet_deletethread(stacklet_thread_handle thrd);
 
 
 /* The "run" function of a stacklet.  The first argument is the handle
@@ -34,7 +34,7 @@ typedef stacklet_handle (*stacklet_run_fn)(stacklet_handle, void *);
 /* Call 'run(source, run_arg)' in a new stack.  See stacklet_switch()
  * for the return value.
  */
-static stacklet_handle stacklet_new(stacklet_thread_handle thrd,
+stacklet_handle stacklet_new(stacklet_thread_handle thrd,
                              stacklet_run_fn run, void *run_arg);
 
 /* Switch to the target handle, resuming its stack.  This returns:
@@ -44,19 +44,19 @@ static stacklet_handle stacklet_new(stacklet_thread_handle thrd,
  * Don't call this with an already-used target, with EMPTY_STACKLET_HANDLE,
  * or with a stack handle from another thread (in multithreaded apps).
  */
-static stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
+stacklet_handle stacklet_switch(stacklet_thread_handle thrd,
                                 stacklet_handle target);
 
 /* Delete a stack handle without resuming it at all.
  * (This works even if the stack handle is of a different thread)
  */
-static void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target);
+void stacklet_destroy(stacklet_thread_handle thrd, stacklet_handle target);
 
 /* stacklet_handle _stacklet_switch_to_copy(stacklet_handle) --- later */
 
 /* Hack: translate a pointer into the stack of a stacklet into a pointer
  * to where it is really stored so far.  Only to access word-sized data.
  */
-static char **_stacklet_translate_pointer(stacklet_handle context, char **ptr);
+char **_stacklet_translate_pointer(stacklet_handle context, char **ptr);
 
 #endif /* _STACKLET_H_ */
