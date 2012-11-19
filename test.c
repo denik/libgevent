@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <assert.h>
 #include "gevent.h"
 
 
@@ -17,6 +18,6 @@ int main() {
     gevent_cothread t1, t2;
     gevent_spawn(hub, &t1, func1);
     gevent_spawn(hub, &t2, func2);
-    gevent_wait(hub);
+    assert(gevent_wait(hub, 0) == 0);
     return 0;
 }
