@@ -50,43 +50,20 @@ static int set_artificial_error(uv_loop_t* loop, uv_err_code code) {
 
 
 void gevent_cothread_init(gevent_hub* hub, gevent_cothread* t, gevent_cothread_fn run) {
-    ngx_queue_init(&t->spawned);
     t->hub = hub;
     t->stacklet = NULL;
     t->state = GEVENT_COTHREAD_NEW;
     t->op.run = run;
 }
 
-static void _switch(gevent_cothread* g);
 
-static void hub_spawn_fn(uv_timer_t* handle, int status) {
-    assert(status == 0);
-    gevent_hub* hub = ngx_queue_data(handle, gevent_hub, timer);
-    while (!ngx_queue_empty(&hub->spawned)) {
-        gevent_cothread* pt = ngx_queue_data(ngx_queue_head(&hub->spawned), gevent_cothread, spawned);
-        _switch(pt);
-    }
-    uv_timer_stop(&hub->timer);
-}
-
-
-void gevent_activate(gevent_cothread* t) {
-    if (!ngx_queue_empty(&t->spawned))
-        return;
-    ngx_queue_insert_tail(&t->hub->spawned, &t->spawned);
-    uv_timer_start(&t->hub->timer, hub_spawn_fn, 0, 0);
-}
-
-
-void gevent_spawn(gevent_hub* hub, gevent_cothread* t, gevent_cothread_fn run) {
-    gevent_cothread_init(hub, t, run);
-    gevent_activate(t);
+static void noop(gevent_cothread* t) {
+    /* no-op */
 }
 
 
 int gevent_hub_init(gevent_hub* hub, uv_loop_t* loop)
 {
-    ngx_queue_init(&hub->spawned);
     hub->loop = loop;
     hub->thread = stacklet_newthread();
     if (!hub->thread) {
@@ -99,8 +76,7 @@ int gevent_hub_init(gevent_hub* hub, uv_loop_t* loop)
     hub->current = &hub->main;
     gevent_cothread_init(hub, &hub->main, NULL);
     hub->main.state = GEVENT_COTHREAD_CURRENT;
-    if (uv_timer_init(hub->loop, &hub->timer))
-        return -1;
+    hub->exit_fn = noop;
     return 0;
 }
 
@@ -114,80 +90,127 @@ gevent_hub* gevent_default_hub() {
 }
 
 
-stacklet_handle hub_run(stacklet_handle main, void* data) {
+inline int _update_last_current_stacklet(gevent_hub* hub, stacklet_handle source) {
+    assert(source);
+    if (hub->current) {
+        // we switched from another greenlet
+        if (source == EMPTY_STACKLET_HANDLE) {
+            // current has finished
+            // note that current is not necessarily g at this point
+            hub->current->stacklet = NULL;
+            assert(hub->current != &hub->main);
+            hub->current->state = GEVENT_COTHREAD_DEAD;
+        }
+        else {
+            assert(source);
+            hub->current->stacklet = source;
+        }
+    }
+    else {
+        // we switched from the hub
+        if (source == EMPTY_STACKLET_HANDLE) {
+            // hub has finished
+            hub->stacklet = NULL;
+            return set_artificial_error(hub->loop, GEVENT_ENOLOOP);
+        }
+        else {
+            assert(source);
+            hub->stacklet = source;
+        }
+    }
+    return 0;
+}
+
+
+stacklet_handle hub_starter_fn(stacklet_handle source, void* data) {
     gevent_hub* hub = (gevent_hub*)data;
-    hub->main.stacklet = main;
+    assert(hub->current);
+    assert(source);
+    hub->current->stacklet = source;
+    hub->current = NULL;
     uv_run(hub->loop);
     return hub->main.stacklet;
 }
 
 
-int gevent_yield(gevent_hub* hub) {
+static stacklet_handle cothread_starter_fn(stacklet_handle source, gevent_cothread* g) {
+    gevent_hub* hub = g->hub;
+    gevent_cothread_fn run = g->op.run;
+    assert(source);
+    assert(run);
+    assert(g->state == GEVENT_COTHREAD_NEW);
+    g->state = GEVENT_COTHREAD_CURRENT;
+    if (hub->current) {
+        hub->current->stacklet = source;
+    }
+    else {
+        hub->stacklet = source;
+    }
+    hub->current = g;
+    run(g);
+    g->stacklet = NULL;
+    hub->exit_fn(g);
+    g->state = GEVENT_COTHREAD_DEAD;
+    if (hub->stacklet) {
+        return hub->stacklet;
+    }
+    assert(hub->main.stacklet);
+    return hub->main.stacklet;
+}
+
+
+static int gevent_switch(gevent_cothread* g) {
     stacklet_handle source;
-    assert(hub->thread);
+    gevent_hub* hub = g->hub;
+    gevent_cothread* current = hub->current;
+
+    if (g->state == GEVENT_COTHREAD_NEW) {
+        assert(g->op.run);
+        source = stacklet_new(hub->thread, (stacklet_run_fn)cothread_starter_fn, g);
+    }
+    else if (g->stacklet) {
+        assert(g->stacklet != EMPTY_STACKLET_HANDLE);
+        assert(g->state != GEVENT_COTHREAD_DEAD);
+        assert(g->state != GEVENT_COTHREAD_CURRENT);
+        source = stacklet_switch(hub->thread, g->stacklet);
+    }
+    else
+        assert(!"trying to switch to dead greenlet");
+
+    if (!source)
+        return set_artificial_error(hub->loop, GEVENT_ENOMEM);
+
+    int retcode = _update_last_current_stacklet(hub, source);
+    hub->current = current;
+    return retcode;
+}
+
+
+int gevent_switch_to_hub(gevent_hub* hub) {
+    stacklet_handle source;
+    gevent_cothread* current = hub->current;
+    assert(current);
+
     if (hub->stacklet) {
         assert(hub->stacklet != EMPTY_STACKLET_HANDLE);
         source = stacklet_switch(hub->thread, hub->stacklet);
     }
     else {
-        source = stacklet_new(hub->thread, hub_run, hub);
+        source = stacklet_new(hub->thread, hub_starter_fn, hub);
     }
+
     if (!source)
         return set_artificial_error(hub->loop, GEVENT_ENOMEM);
-    // source is the new stacklet for hub or EMPTY_STACKLET_HANDLE if uv_loop is done
-    if (source == EMPTY_STACKLET_HANDLE) {
-        // hub has finished
-        hub->stacklet = NULL;
-        return set_artificial_error(hub->loop, GEVENT_ENOLOOP);
-    }
-    hub->stacklet = source;
-    return 0;
+
+    int retcode = _update_last_current_stacklet(hub, source);
+    hub->current = current;
+    return retcode;
 }
 
 
-static stacklet_handle starter_fn(stacklet_handle source, gevent_cothread* g) {
-    gevent_cothread_fn run = g->op.run;
-    assert(run);
-    assert(g->state == GEVENT_COTHREAD_NEW);
-    g->state = GEVENT_COTHREAD_CURRENT;
-    g->hub->stacklet = source;
-    run(g);
-    return g->hub->stacklet;
-}
-
-
-// XXX rename to gevent_switch
-static void _switch(gevent_cothread* g) {
-    stacklet_handle source;
-    assert(g);
-    gevent_hub* hub = g->hub;
-    assert(hub->thread);
-    if (!ngx_queue_empty(&g->spawned)) {
-        ngx_queue_remove(&g->spawned);
-    }
-
-    hub->current = g;
-
-    if (g->state == GEVENT_COTHREAD_NEW) {
-        assert(g->op.run);
-        source = stacklet_new(hub->thread, (stacklet_run_fn)starter_fn, g);
-    }
-    else if (g->stacklet) {
-        assert(g->stacklet != EMPTY_STACKLET_HANDLE);
-        source = stacklet_switch(hub->thread, g->stacklet);
-    }
-    else
-        return;
-
-    // source is the stacklet that just switched to the hub
-    if (source == EMPTY_STACKLET_HANDLE) {
-        // current has finished
-        hub->current->stacklet = NULL;
-        hub->current->state = GEVENT_COTHREAD_DEAD;
-        // QQQ python-gevent will probably need something like this
-        // if (hub->exit_cb) hub->exit_cb(hub->current);
-    }
-    hub->current->stacklet = source;
+void gevent_spawn(gevent_hub* hub, gevent_cothread* t, gevent_cothread_fn run) {
+    gevent_cothread_init(hub, t, run);
+    gevent_switch(t);
 }
 
 
@@ -196,7 +219,7 @@ static void switch_cb(uv_timer_t* handle, int status) {
     assert(paused);
     // QQQ pass status along; check for which watchers it actually matters
     // paused->op_status = status;
-    _switch(paused);
+    gevent_switch(paused);
     // QQQ do we need to check if switch is still needed?
     // QQQ in some cases - no: sleep() stops the timer and that must clear pending events
     // QQQ in some cases - yes: there's no way to cancel getaddrinfo
@@ -210,17 +233,17 @@ inline gevent_cothread* get_current(gevent_hub* hub) {
     assert(hub);
     current = hub->current;
     assert(current);
-    assert(current->state == 0);
+    assert(current->state == GEVENT_COTHREAD_CURRENT);
     return current;
 }
 
-#define YIELD(HUB, STATE) do {            \
-    current->state = STATE;            \
-    retcode = gevent_yield(HUB);          \
-    assert(current->state == STATE);   \
-    current->state = 0;                \
-    } while(0);
 
+#define YIELD(HUB, STATE) do {             \
+    current->state = STATE;                \
+    retcode = gevent_switch_to_hub(HUB);   \
+    assert(current->state == STATE);       \
+    current->state = 0;                    \
+    } while(0);
 
 
 static int _sleep_internal(gevent_hub* hub, int64_t timeout, int ref) {
@@ -257,7 +280,7 @@ int gevent_wait(gevent_hub* hub, int64_t timeout) {
     if (timeout > 0)
         retcode = _sleep_internal(hub, timeout, 0);
     else
-        retcode = gevent_yield(hub);
+        retcode = gevent_switch_to_hub(hub);
     if (retcode == -1 && (gevent_err_code)uv_last_error(hub->loop).code == GEVENT_ENOLOOP) {
         retcode = 0;
     }
@@ -275,7 +298,7 @@ static void getaddrinfo_cb(uv_getaddrinfo_t* req, int status, struct addrinfo* r
     // it's a different getaddrinfo already
     current->op_status = status;
     *current->op.getaddrinfo.result = res;
-    _switch(current);
+    gevent_switch(current);
 }
 
 
@@ -302,63 +325,58 @@ int gevent_channel_init(gevent_hub* hub, gevent_channel* ch) {
     ngx_queue_init(&ch->receivers);
     ngx_queue_init(&ch->senders);
     ch->hub = hub;
-    if (uv_timer_init(hub->loop, &ch->timer))
-        return -1;
     return 0;
-}
-
-
-static void channel_timer_fn(uv_timer_t* handle, int status) {
-    fprintf(stderr, "channel_timer_t\n");
-    gevent_channel* ch = ngx_queue_data(handle, gevent_channel, timer);
-    while (!ngx_queue_empty(&ch->receivers) && !ngx_queue_empty(&ch->senders)) {
-        fprintf(stderr, "channel_timer - xxx\n");
-        ngx_queue_t* receiver = ngx_queue_head(&ch->receivers);
-        ngx_queue_t* sender = ngx_queue_head(&ch->senders);
-        ngx_queue_remove(receiver);
-        ngx_queue_remove(sender);
-        gevent_cothread* receiver_t = ngx_queue_data(receiver, gevent_cothread, op);
-        gevent_cothread* sender_t = ngx_queue_data(sender, gevent_cothread, op);
-        receiver_t->op.channel.value = sender_t->op.channel.value;
-        _switch(receiver_t);
-        _switch(sender_t);
-    }
-    uv_timer_stop(&ch->timer);
-    fprintf(stderr, "channel_timer_fn - done\n");
 }
 
 
 int gevent_channel_receive(gevent_channel* ch, void** result) {
     int retcode;
     gevent_cothread* current = get_current(ch->hub);
-    ngx_queue_t* q = &current->op.channel.queue;
-    ngx_queue_init(q);
-    ngx_queue_insert_tail(&ch->receivers, q);
-    uv_timer_start(&ch->timer, channel_timer_fn, 0, 0);
-    fprintf(stderr, "gevent_channel_receive before yield\n");
-    YIELD(ch->hub, GEVENT_CHANNEL_RECV);
-    fprintf(stderr, "gevent_channel_receive after yield\n");
-    ngx_queue_remove(q);
-    if (retcode)
-        return retcode;
-    *result = current->op.channel.value;
-    return 0;
+    if (ngx_queue_empty(&ch->senders)) {
+        ngx_queue_t* q = &current->op.channel.queue;
+        ngx_queue_init(q);
+        ngx_queue_insert_tail(&ch->receivers, q);
+        YIELD(ch->hub, GEVENT_CHANNEL_RECV);
+        *result = current->op.channel.value;
+    }
+    else {
+        ngx_queue_t* sender = ngx_queue_head(&ch->senders);
+        gevent_cothread* sender_cothread = ngx_queue_data(sender, gevent_cothread, op);
+        assert(sender_cothread->state == GEVENT_CHANNEL_SEND);
+        ngx_queue_remove(sender);
+        current->state = GEVENT_CHANNEL_SEND;
+        *result = sender_cothread->op.channel.value;
+        retcode = gevent_switch(sender_cothread);
+        assert(current->state == GEVENT_CHANNEL_SEND);
+        current->state = GEVENT_COTHREAD_CURRENT;
+    }
+    return retcode;
 }
 
 
 int gevent_channel_send(gevent_channel* ch, void* value) {
     int retcode;
     gevent_cothread* current = get_current(ch->hub);
-    ngx_queue_t* q = &current->op.channel.queue;
-    ngx_queue_init(q);
-    ngx_queue_insert_tail(&ch->senders, q);
-    uv_timer_start(&ch->timer, channel_timer_fn, 0, 0);
-    current->op.channel.value = value;
-    fprintf(stderr, "gevent_channel_send before yield\n");
-    YIELD(ch->hub, GEVENT_CHANNEL_SEND);
-    fprintf(stderr, "gevent_channel_send after yield\n");
-    ngx_queue_remove(q);
-    if (retcode)
-        return retcode;
-    return 0;
+    if (ngx_queue_empty(&ch->receivers)) {
+        ngx_queue_t* q = &current->op.channel.queue;
+        ngx_queue_init(q);
+        ngx_queue_insert_tail(&ch->senders, q);
+        current->op.channel.value = value;
+        YIELD(ch->hub, GEVENT_CHANNEL_SEND);
+    }
+    else {
+        ngx_queue_t* receiver = ngx_queue_head(&ch->receivers);
+        gevent_cothread* receiver_cothread = ngx_queue_data(receiver, gevent_cothread, op);
+        assert(receiver_cothread->state == GEVENT_CHANNEL_RECV);
+        ngx_queue_remove(receiver);
+        receiver_cothread->op.channel.value = value;
+        retcode = gevent_switch(receiver_cothread);
+    }
+    return retcode;
 }
+
+// channel operations bypassing hub, thus may starve I/O
+// XXX every 100 switches, do a switch to hub
+// however then I have to make sure that nobody switches to cothread in question
+// which makes it all somewhat complex
+// alternatively, send/recv can also do sleep(0) every 100 non-hub switches

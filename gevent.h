@@ -17,7 +17,7 @@ typedef void (*gevent_cothread_fn)(gevent_cothread*);
 typedef enum gevent_cothread_state_e {
     GEVENT_COTHREAD_CURRENT = 0,
     GEVENT_COTHREAD_NEW = 1,
-    GEVENT_COTHREAD_DEAD = 2,
+    GEVENT_COTHREAD_DEAD = 4,
 #define XX(uc, lc) GEVENT_WAITING_##uc,
     UV_HANDLE_TYPE_MAP(XX)
     UV_REQ_TYPE_MAP(XX)
@@ -42,7 +42,6 @@ typedef enum gevent_err_code_e {
 
 
 struct gevent_cothread_s {
-    ngx_queue_t spawned; /* XXX rename to active */
     gevent_hub* hub;
     stacklet_handle stacklet;
 
@@ -97,13 +96,12 @@ struct gevent_cothread_s {
 
 
 struct gevent_hub_s {
-    ngx_queue_t spawned;
     uv_loop_t* loop;
     stacklet_thread_handle thread;
     stacklet_handle stacklet;
     gevent_cothread* current;
     gevent_cothread main;
-    uv_timer_t timer;
+    gevent_cothread_fn exit_fn;
 };
 
 
@@ -111,7 +109,6 @@ struct gevent_channel_s {
     ngx_queue_t receivers;
     ngx_queue_t senders;
     gevent_hub* hub;
-    uv_timer_t timer;
 };
 
 int gevent_hub_init(gevent_hub* hub, uv_loop_t* loop);
