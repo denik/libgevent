@@ -9,11 +9,9 @@
         ],
         'conditions': [
           ['OS=="solaris"', {
-            'cflags': ['-pthreads'],
-            'ldlags': ['-pthreads'],
+            'cflags': [ '-pthreads' ],
           }, {
-            'cflags': ['-pthread'],
-            'ldlags': ['-pthread'],
+            'cflags': [ '-pthread' ],
           }],
         ],
       }],
@@ -38,12 +36,11 @@
           ['OS == "mac"', {
             'defines': [ '_DARWIN_USE_64_BIT_INODE=1' ],
           }],
-          ['OS == "linux"', {
-            'libraries': [ '-ldl' ],
-          }],
         ],
       },
-
+      'defines': [
+        'HAVE_CONFIG_H'
+      ],
       'sources': [
         'common.gypi',
         'include/uv.h',
@@ -112,7 +109,6 @@
             '-Wno-unused-parameter'
           ],
           'sources': [
-            'include/uv-private/ev.h',
             'include/uv-private/uv-unix.h',
             'include/uv-private/uv-linux.h',
             'include/uv-private/uv-sunos.h',
@@ -122,10 +118,6 @@
             'src/unix/core.c',
             'src/unix/dl.c',
             'src/unix/error.c',
-            'src/unix/ev/ev.c',
-            'src/unix/ev/ev_vars.h',
-            'src/unix/ev/ev_wrap.h',
-            'src/unix/ev/event.h',
             'src/unix/fs.c',
             'src/unix/getaddrinfo.c',
             'src/unix/internal.h',
@@ -143,8 +135,16 @@
             'src/unix/tty.c',
             'src/unix/udp.c',
           ],
-          'include_dirs': [ 'src/unix/ev', ],
-          'libraries': [ '-lm' ],
+          'link_settings': {
+            'libraries': [ '-lm' ],
+            'conditions': [
+              ['OS=="solaris"', {
+                'ldflags': [ '-pthreads' ],
+              }, {
+                'ldflags': [ '-pthread' ],
+              }],
+            ],
+          },
           'conditions': [
             ['"<(library)" == "shared_library"', {
               'cflags': [ '-fPIC' ],
@@ -153,14 +153,13 @@
         }],
         [ 'OS=="mac"', {
           'sources': [ 'src/unix/darwin.c', 'src/unix/fsevents.c' ],
-          'direct_dependent_settings': {
+          'link_settings': {
             'libraries': [
               '$(SDKROOT)/System/Library/Frameworks/CoreServices.framework',
             ],
           },
           'defines': [
             '_DARWIN_USE_64_BIT_INODE=1',
-            'EV_CONFIG_H="config_darwin.h"',
           ]
         }],
         [ 'OS=="linux"', {
@@ -170,11 +169,8 @@
             'src/unix/linux/syscalls.c',
             'src/unix/linux/syscalls.h',
           ],
-          'defines': [
-            'EV_CONFIG_H="config_linux.h"',
-          ],
-          'direct_dependent_settings': {
-            'libraries': [ '-lrt' ],
+          'link_settings': {
+            'libraries': [ '-ldl', '-lrt' ],
           },
         }],
         [ 'OS=="solaris"', {
@@ -182,9 +178,8 @@
           'defines': [
             '__EXTENSIONS__',
             '_XOPEN_SOURCE=500',
-            'EV_CONFIG_H="config_sunos.h"',
           ],
-          'direct_dependent_settings': {
+          'link_settings': {
             'libraries': [
               '-lkstat',
               '-lnsl',
@@ -199,20 +194,16 @@
           'defines': [
             '_ALL_SOURCE',
             '_XOPEN_SOURCE=500',
-            'EV_CONFIG_H="config_aix.h"',
           ],
-          'direct_dependent_settings': {
+          'link_settings': {
             'libraries': [
               '-lperfstat',
             ],
           },
         }],
-        [ 'OS=="freebsd"', {
+        [ 'OS=="freebsd" or OS=="dragonflybsd"', {
           'sources': [ 'src/unix/freebsd.c' ],
-          'defines': [
-            'EV_CONFIG_H="config_freebsd.h"',
-          ],
-          'direct_dependent_settings': {
+          'link_settings': {
             'libraries': [
               '-lkvm',
             ],
@@ -220,22 +211,16 @@
         }],
         [ 'OS=="openbsd"', {
           'sources': [ 'src/unix/openbsd.c' ],
-          'defines': [
-            'EV_CONFIG_H="config_openbsd.h"',
-          ],
         }],
         [ 'OS=="netbsd"', {
           'sources': [ 'src/unix/netbsd.c' ],
-          'defines': [
-            'EV_CONFIG_H="config_netbsd.h"',
-          ],
-          'direct_dependent_settings': {
+          'link_settings': {
             'libraries': [
               '-lkvm',
             ],
           },
         }],
-        [ 'OS=="mac" or OS=="freebsd" or OS=="openbsd" or OS=="netbsd"', {
+        [ 'OS in "mac freebsd dragonflybsd openbsd netbsd".split()', {
           'sources': [ 'src/unix/kqueue.c' ],
         }],
         ['library=="shared_library"', {

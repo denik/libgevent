@@ -66,8 +66,8 @@ static void* worker(void* arg) {
 
     uv_mutex_lock(&w->loop->wq_mutex);
     ngx_queue_insert_tail(&w->loop->wq, &w->wq);
-    uv_mutex_unlock(&w->loop->wq_mutex);
     uv_async_send(&w->loop->wq_async);
+    uv_mutex_unlock(&w->loop->wq_mutex);
   }
 
   return NULL;
@@ -153,8 +153,7 @@ void uv__work_done(uv_async_t* handle, int status) {
 static void uv__queue_work(struct uv__work* w) {
   uv_work_t* req = container_of(w, uv_work_t, work_req);
 
-  if (req->work_cb)
-    req->work_cb(req);
+  req->work_cb(req);
 }
 
 
@@ -172,6 +171,9 @@ int uv_queue_work(uv_loop_t* loop,
                   uv_work_t* req,
                   uv_work_cb work_cb,
                   uv_after_work_cb after_work_cb) {
+  if (work_cb == NULL)
+    return uv__set_artificial_error(loop, UV_EINVAL);
+
   uv__req_init(loop, req, UV_WORK);
   req->loop = loop;
   req->work_cb = work_cb;
