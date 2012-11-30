@@ -1,0 +1,5 @@
+script:
+  - "make test"
+
+notifications:
+  email: denis.bilenko@gmail.com
