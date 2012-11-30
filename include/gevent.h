@@ -39,6 +39,11 @@ typedef enum gevent_cothread_state_e {
     UV_REQ_TYPE_MAP(XX)
 #undef XX
 
+#define XX(uc, lc) GEVENT_WAITING_PTR_##uc,
+    UV_HANDLE_TYPE_MAP(XX)
+    UV_REQ_TYPE_MAP(XX)
+#undef XX
+
     GEVENT_COTHREAD_LAST
 } gevent_cothread_state;
 
@@ -61,42 +66,37 @@ typedef enum gevent_err_code_e {
 
 
 struct gevent_cothread_s {
-    /* all of the members below are private and read-only */
-
-    ngx_queue_t ready;
-
+    /* all of the members below are read-only */
     gevent_hub* hub;
 
     gevent_cothread_state state;
 
-    void* current_op;
-
-    stacklet_handle stacklet;
-
-    /* storage for one-time operations, like sleep */
+    /* storage for one-time operations */
     union {
-        gevent_cothread_fn run;
-        uv_timer_t timer;
+        gevent_cothread_fn run;  /* GEVENT_COTHREAD_NEW */
+        ngx_queue_t ready;       /* GEVENT_COTHREAD_READY */
+        uv_timer_t timer;        /* GEVENT_WAITING_TIMER */
 
-        struct getaddrinfo_s {
+        struct getaddrinfo_s {   /* GEVENT_WAITING_GETADDRINFO */
             uv_getaddrinfo_t req;
             struct addrinfo** result;
         } getaddrinfo;
 
-        struct channel_s {
+        struct channel_s {       /* GEVENT_COTHREAD_CHANNEL_[RS] */
             ngx_queue_t queue;
             void* value;
         } channel;
 
-        /* could also be
-         * - pointer to external handle or req  (if we need this???)
-         * - pointer to event/queue/semaphore that we wait for
-         * */
+        /* a pointer to an external handle/request cothread is currently waiting on: GEVENT_WAITING_PTR_XXX */
+        void* external;
     } op;
     int op_status; /* not everyone needs it */
 
-    /* likely features:
-     * - background flag: if set all handles/requests are temporarily unrefed before waiting for them
+    /* private: stored stack */
+    stacklet_handle stacklet;
+
+    /*
+     * - background flag: all handles/requests are temporarily unrefed before waiting for them
      */
 };
 
@@ -158,7 +158,8 @@ gevent_hub* gevent_default_hub(void);
 /* Initialize a cothread structure */
 void gevent_cothread_init(gevent_hub* hub, gevent_cothread* t, gevent_cothread_fn run);
 
-/* Start a cothread: switch into it and add the current cothread to 'ready' queue */
+/* Start a cothread.
+ * Switches into it immediatelly (the current one is put in a READY queue) */
 int gevent_cothread_spawn(gevent_cothread* t);
 
 /* Pause a cothread for a specified number of miliseconds */
@@ -166,7 +167,7 @@ int gevent_sleep(gevent_hub* hub, int64_t timeout);
 
 /* Wait for the event loop to finish or for a specified number of miliseconds, whatever happens first.
  * Returns -1 on error, 0 if timeout expired, 1 if event loop has finished.
- * */
+ */
 int gevent_wait(gevent_hub* hub, int64_t timeout);
 
 /* Initialize a channel structure */

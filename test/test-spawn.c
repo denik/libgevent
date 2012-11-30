@@ -12,8 +12,7 @@ static void noop(gevent_cothread* t) {
     /*ASSERT(!t->stacklet);*/
     ASSERT(t->hub->current == t);
     ASSERT(!ngx_queue_empty(&t->hub->ready));
-    ASSERT(ngx_queue_data(ngx_queue_head(&t->hub->ready), gevent_hub, ready) == (void*)&t->hub->main);
-    ASSERT(ngx_queue_empty(&t->ready));
+    ASSERT(ngx_queue_data(ngx_queue_head(&t->hub->ready), gevent_cothread, op) == (void*)&t->hub->main);
     count += 1;
 }
 

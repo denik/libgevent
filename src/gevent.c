@@ -95,13 +95,11 @@ gevent_hub* gevent_default_hub() {
 
 
 void gevent_cothread_init(gevent_hub* hub, gevent_cothread* t, gevent_cothread_fn run) {
-    ngx_queue_init(&t->ready);
     t->hub = hub;
     t->state = GEVENT_COTHREAD_NEW;
-    t->current_op = NULL;
-    t->stacklet = NULL; /* not needed, debug only */
     t->op.run = run;
     t->op_status = 0;
+    t->stacklet = NULL; /* not needed, debug only */
 }
 
 
@@ -116,10 +114,9 @@ static gevent_cothread* get_current(gevent_hub* hub) {
 
 
 static void _put_into_ready(gevent_cothread* t) {
-    if (t->state == GEVENT_COTHREAD_CURRENT) {
-        t->state = GEVENT_COTHREAD_READY;
-        ngx_queue_insert_tail(&t->hub->ready, &t->ready);
-    }
+    assert(t->state == GEVENT_COTHREAD_CURRENT);
+    t->state = GEVENT_COTHREAD_READY;
+    ngx_queue_insert_tail(&t->hub->ready, &t->op.ready);
 }
 
 
@@ -128,6 +125,7 @@ int gevent_cothread_spawn(gevent_cothread* t) {
     if (current) {
         _put_into_ready(current);
     }
+    assert(t->state == GEVENT_COTHREAD_NEW);
     return gevent_switch(t);
 }
 
@@ -191,7 +189,8 @@ stacklet_handle _get_next_stacklet(gevent_hub* hub) {
     gevent_cothread* tmp;
     if (!ngx_queue_empty(&hub->ready)) {
         q = ngx_queue_head(&hub->ready);
-        tmp = ngx_queue_data(q, gevent_cothread, ready);
+        tmp = ngx_queue_data(q, gevent_cothread, op);
+        assert(tmp->state == GEVENT_COTHREAD_READY);
         assert(tmp->stacklet);
         ngx_queue_remove(q);
         _before_switch(hub, tmp);
@@ -291,7 +290,7 @@ int gevent_yield(gevent_hub* hub) {
     gevent_cothread* tmp;
     if (!ngx_queue_empty(&hub->ready)) {
         q = ngx_queue_head(&hub->ready);
-        tmp = ngx_queue_data(q, gevent_cothread, ready);
+        tmp = ngx_queue_data(q, gevent_cothread, op);
         assert(tmp->state == GEVENT_COTHREAD_READY);
         ngx_queue_remove(q);
         return gevent_switch(tmp);
@@ -368,11 +367,6 @@ static void getaddrinfo_cb(uv_getaddrinfo_t* req, int status, struct addrinfo* r
         return;
     if (blocked_cothread->state != GEVENT_WAITING_GETADDRINFO)
         return;
-    if (blocked_cothread->current_op != req) {
-        /* it still could be different request; 2 getaddrinfo requests in a row
-         * would use the same current_op beccause it is stored in the same storage */
-        return;
-    }
     *blocked_cothread->op.getaddrinfo.result = res;
     if (gevent_switch(blocked_cothread)) {
         assert(!"gevent_switch() failed");
