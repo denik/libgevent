@@ -12,14 +12,13 @@ typedef struct gevent_cothread_s gevent_cothread;
 typedef struct gevent_hub_s gevent_hub;
 typedef struct gevent_channel_s gevent_channel;
 typedef void (*gevent_cothread_fn)(gevent_cothread*);
-void gevent_noop(gevent_cothread* t);
 
 
 typedef enum gevent_cothread_state_e {
     /* the cothread is currently active */
     GEVENT_COTHREAD_CURRENT = 0,
 
-    /* the cothread has never been switched to (op.run points to function) */
+    /* the cothread has never been switched to (op.init.run points to function) */
     GEVENT_COTHREAD_NEW = 1,
 
     /* the cothread is ready to run (referenced by ready queue) */
@@ -73,7 +72,10 @@ struct gevent_cothread_s {
 
     /* storage for one-time operations */
     union {
-        gevent_cothread_fn run;  /* GEVENT_COTHREAD_NEW */
+        struct init_s { /* GEVENT_COTHREAD_NEW */
+            gevent_cothread_fn run;
+            void* args[6];
+        } init;
         ngx_queue_t ready;       /* GEVENT_COTHREAD_READY */
         uv_timer_t timer;        /* GEVENT_WAITING_TIMER */
 
@@ -95,6 +97,10 @@ struct gevent_cothread_s {
     /* private: stored stack */
     stacklet_handle stacklet;
 
+    /* this will be called when a cothread has finished and will not be used by gevent anymore
+     * this must not be null; the default value is  */
+    gevent_cothread_fn exit_fn;
+
     /*
      * - background flag: all handles/requests are temporarily unrefed before waiting for them
      */
@@ -102,8 +108,6 @@ struct gevent_cothread_s {
 
 
 struct gevent_hub_s {
-    /* everything in hub structure is read-only, except for exit_fn, which can be set at any time */
-
     /* a list of ready-to-run cothreads */
     ngx_queue_t ready;
 
@@ -121,10 +125,6 @@ struct gevent_hub_s {
 
     /* pointer to the cothread that is currently active; NULL if hub is currently active; initially it is &main */
     gevent_cothread* current;
-
-    /* this will be called when a cothread has finished and will not be used by gevent anymore
-     * this must not be null; the default value is  */
-    gevent_cothread_fn exit_fn;
 };
 
 

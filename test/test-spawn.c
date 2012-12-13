@@ -115,12 +115,21 @@ TEST_IMPL(spawn_sleep) {
 
 static int spawned, slept, freed;
 
+
+static void free_cothread(gevent_cothread* t) {
+    ASSERT(t);
+    free(t);
+    freed++;
+}
+
+
 static void spawn_or_sleep(gevent_cothread* t) {
     gevent_cothread* new;
     if (rand() > RAND_MAX / 2) {
         spawned++;
         new = malloc(sizeof(gevent_cothread));
         gevent_cothread_init(t->hub, new, spawn_or_sleep);
+        new->exit_fn = free_cothread;
         gevent_cothread_spawn(new);
     }
     else {
@@ -130,16 +139,8 @@ static void spawn_or_sleep(gevent_cothread* t) {
 }
 
 
-static void free_cothread(gevent_cothread* t) {
-    ASSERT(t);
-    free(t);
-    freed++;
-}
-
-
 TEST_IMPL(spawn_sleep_many) {
     gevent_hub* hub = gevent_default_hub();
-    hub->exit_fn = free_cothread;
     while (spawned < 100 || slept < 100) {
         spawn_or_sleep(hub->current);
     }

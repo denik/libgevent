@@ -8,11 +8,6 @@ static gevent_hub* default_hub_ptr = NULL;
 static int gevent_switch(gevent_cothread* t);
 
 
-void gevent_noop(gevent_cothread* t) {
-    /* this is what hub->exit_fn is initilized with */
-}
-
-
 #define UV_ERR_NAME_GEN(val, name, s) case UV_##name : return #name;
 #define GEVENT_ERR_NAME_GEN(val, name, s) case GEVENT_##name : return #name;
 const char* gevent_err_name(int code) {
@@ -72,7 +67,6 @@ int gevent_hub_init(gevent_hub* hub, uv_loop_t* loop)
     gevent_cothread_init(hub, &hub->main, NULL);
     hub->main.state = GEVENT_COTHREAD_CURRENT;
     hub->current = &hub->main;
-    hub->exit_fn = gevent_noop;
     return 0;
 }
 
@@ -97,9 +91,10 @@ gevent_hub* gevent_default_hub() {
 void gevent_cothread_init(gevent_hub* hub, gevent_cothread* t, gevent_cothread_fn run) {
     t->hub = hub;
     t->state = GEVENT_COTHREAD_NEW;
-    t->op.run = run;
+    t->op.init.run = run;
     t->op_status = 0;
     t->stacklet = NULL; /* not needed, debug only */
+    t->exit_fn = NULL;
 }
 
 
@@ -177,8 +172,18 @@ void _after_switch(gevent_hub* hub, gevent_cothread* new, stacklet_handle source
     else {
         hub->stacklet = NULL;
     }
-    if (who_died) {
-        hub->exit_fn(who_died);
+    if (who_died && who_died->exit_fn) {
+        who_died->exit_fn(who_died);
+    }
+}
+
+
+void _after_failed_switch(gevent_cothread* current) {
+    if (current) {
+        if (current->state == GEVENT_COTHREAD_READY) {
+            ngx_queue_remove(&current->op.ready);
+        }
+        current->state = GEVENT_COTHREAD_CURRENT;
     }
 }
 
@@ -219,7 +224,7 @@ stacklet_handle hub_starter_fn(stacklet_handle source, void* data) {
 
 static stacklet_handle cothread_starter_fn(stacklet_handle source, gevent_cothread* g) {
     gevent_hub* hub = g->hub;
-    gevent_cothread_fn run = g->op.run;
+    gevent_cothread_fn run = g->op.init.run;
     assert(source);
     assert(run);
     assert(g->state == GEVENT_COTHREAD_NEW);
@@ -247,7 +252,7 @@ static int gevent_switch(gevent_cothread* t) {
     _before_switch(hub, t);
 
     if (t->state == GEVENT_COTHREAD_NEW) {
-        assert(t->op.run);
+        assert(t->op.init.run);
         source = stacklet_new(hub->thread, (stacklet_run_fn)cothread_starter_fn, t);
     }
     else {
@@ -256,10 +261,7 @@ static int gevent_switch(gevent_cothread* t) {
     }
 
     if (!source) {
-        if (current) {
-            /* it's easier for callers to know that state of current is always good */
-            current->state = GEVENT_COTHREAD_CURRENT;
-        }
+        _after_failed_switch(current);
         return set_artificial_error(hub->loop, GEVENT_ENOMEM);
     }
 
@@ -284,9 +286,7 @@ int gevent_switch_to_hub(gevent_hub* hub) {
     }
 
     if (!source) {
-        if (current) {
-            current->state = GEVENT_COTHREAD_CURRENT;
-        }
+        _after_failed_switch(current);
         return set_artificial_error(hub->loop, GEVENT_ENOMEM);
     }
 
