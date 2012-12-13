@@ -328,7 +328,6 @@ static void sleep_cb(uv_timer_t* handle, int status) {
 }
 
 
-/* this should be the external API ?? */
 static int _sleep_internal(gevent_hub* hub, int64_t timeout, int ref) {
     int retcode;
     gevent_cothread* current = get_current(hub);
