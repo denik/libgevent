@@ -1,19 +1,19 @@
 CYTHON ?= cython
 
-all: libgevent.c
+all: gevent2.c
 
-libgevent.c: libgevent.pyx
+gevent2.c: gevent2.pyx
 	$(CYTHON) -o $@ $<
 	echo                          >> $@
 	echo '#include "callbacks.c"' >> $@
 
-libgevent.so: libgevent.c
+gevent2.so: gevent2.c
 	python setup.py build
 
 clean:
-	rm -fr libgevent.c
+	rm -fr gevent2.c gevent2.so
 
-test: libgevent.so
+test: gevent2.so
 	python test_spawn.py
 	python test_channel.py
 

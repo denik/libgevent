@@ -1,4 +1,4 @@
-import libgevent as gevent
+import gevent2 as gevent
 from time import time
 
 ch = gevent.channel()

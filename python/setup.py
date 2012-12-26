@@ -15,9 +15,9 @@ from distutils.command import build_ext
 class my_build_ext(build_ext.build_ext):
 
     def build_extension(self, ext):
-        if os.system('cd ../libuv && make'):
+        if os.system('cd .. && make libgevent.a'):
             sys.exit('make failed')
-        if os.system('make libgevent.c'):
+        if os.system('make gevent2.c'):
             sys.exit('make failed')
         result = build_ext.build_ext.build_extension(self, ext)
         try:
@@ -38,11 +38,11 @@ class my_build_ext(build_ext.build_ext):
         return result
 
 
-EXT = Extension(name='libgevent',
-                sources=['libgevent.c'],
+EXT = Extension(name='gevent2',
+                sources=['gevent2.c'],
                 include_dirs=['../include', '..', '../libuv/include'],
                 libraries=['rt'],
-                extra_objects=['../libuv/libuv.a']
+                extra_objects=['../libgevent.a', '../libuv/libuv.a']
                )
 
 
