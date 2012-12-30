@@ -1,5 +1,8 @@
+language: python
 script:
-  - "make test"
-
+ - make test
+ - make bench
+ - cd python
+ - make test
 notifications:
-  email: denis.bilenko@gmail.com
+  email: false
