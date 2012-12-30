@@ -3,7 +3,7 @@
 
 #include "stacklet/stacklet.h"
 #include "uv.h"
-#include "libuv/include/uv-private/ngx-queue.h"
+#include "uv-private/ngx-queue.h"
 
 
 struct gevent_cothread_s;
