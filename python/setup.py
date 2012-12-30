@@ -12,13 +12,16 @@ except ImportError:
 from distutils.command import build_ext
 
 
+def system(cmd):
+    if os.system(cmd):
+        sys.exit('%r failed' % cmd)
+
+
 class my_build_ext(build_ext.build_ext):
 
     def build_extension(self, ext):
-        if os.system('cd .. && make libgevent.a'):
-            sys.exit('make failed')
-        if os.system('make gevent2.c'):
-            sys.exit('make failed')
+        system('cd .. && make libgevent.a')
+        system('make gevent2.c')
         result = build_ext.build_ext.build_extension(self, ext)
         try:
             fullname = self.get_ext_fullname(ext.name)
@@ -40,7 +43,7 @@ class my_build_ext(build_ext.build_ext):
 
 EXT = Extension(name='gevent2',
                 sources=['gevent2.c'],
-                include_dirs=['../include', '..', '../libuv/include'],
+                include_dirs=['..', '../libuv/include'],
                 libraries=['rt'],
                 extra_objects=['../libgevent.a', '../libuv/libuv.a']
                )
@@ -57,4 +60,4 @@ if __name__ == '__main__':
         classifiers=[
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Intended Audience :: Developers",
-        "Development Status :: 4 - Beta"])
+        "Development Status :: 2 - Pre-Alpha"])

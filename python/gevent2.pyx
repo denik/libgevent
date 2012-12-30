@@ -2,7 +2,7 @@ import sys
 from cpython cimport *
 
 
-cdef extern from "../src/gevent.c":
+cdef extern from "../gevent.c":
     int GEVENT_COTHREAD_CURRENT
     int GEVENT_COTHREAD_NEW
     int GEVENT_COTHREAD_READY

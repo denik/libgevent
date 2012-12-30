@@ -6,7 +6,7 @@ ifdef MSVC
 uname_S := MINGW
 endif
 
-CPPFLAGS += -Iinclude -Ilibuv/include -Ilibuv/include/uv-private -I.
+CPPFLAGS += -Ilibuv/include -Ilibuv/include/uv-private -I.
 
 ifeq (Darwin,$(uname_S))
 SOEXT = dylib
@@ -23,11 +23,10 @@ endif
 libuv/libuv.a:
 	cd libuv && make libuv.a
 
-src/%.o: src/%.c
-	# include/*.h include/uv-private/*.h include/*.h stacklet/*.*
+%.o: %.c
 	$(CC) $(CSTDFLAG) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-libgevent.a: src/gevent.o libuv/libuv.a
+libgevent.a: gevent.o libuv/libuv.a
 	$(AR) rcs $@ $^
 
 HELPERS=libuv/test/test-stdio-over-pipes.c libuv/test/test-ipc.c libuv/test/test-ipc-send-recv.c libuv/test/test-platform-output.c
@@ -56,5 +55,5 @@ bench: test/run-benchmarks$(E)
 	$<
 
 clean:
-	$(RM) src/*.o *.a test/run-tests$(E) test/run-benchmarks$(E)
+	$(RM) *.o *.a test/run-tests$(E) test/run-benchmarks$(E)
 	cd libuv && make clean
