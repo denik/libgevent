@@ -8,8 +8,8 @@
             __FILE__,                                                 \
             __LINE__,                                                 \
             #expr,                                                    \
-            gevent_err_name(uv_last_error(uv_default_loop()).code),   \
-            gevent_strerror(uv_last_error(uv_default_loop()).code));  \
+            uv_err_name(uv_last_error(uv_default_loop())),            \
+            uv_strerror(uv_last_error(uv_default_loop())));           \
     abort();                                                          \
   }                                                                   \
  } while (0)

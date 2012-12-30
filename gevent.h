@@ -6,6 +6,23 @@
 #include "uv-private/ngx-queue.h"
 
 
+/* Return values:
+ *
+ * All functions returning int return -1 on error and 0 on success.
+ */
+
+/* Switching:
+ *
+ * Most functions that can switch immediatelly to the target do switch immediatelly rather
+ * then doing it via hub (spawn, channel_recv, channel_send).
+ *
+ * TODO:
+ * However, to avoid starving the event loop, a counter is maintained of how many switches were
+ * done that bypassed the hub. When this count reaches certain value (GEVENT_SWITCH_COUNT, 
+ * default 100) a switch to the hub is forced.
+ */
+
+
 struct gevent_cothread_s;
 struct gevent_hub_s;
 typedef struct gevent_cothread_s gevent_cothread;
@@ -47,20 +64,6 @@ typedef enum gevent_cothread_state_e {
 } gevent_cothread_state;
 
 
-#define GEVENT_ERRNO_MAP(XX)                                         \
-  XX( 1000, EINTERRUPTED, "operation interrupted")                   \
-  XX( 1001, ENOLOOP, "loop exited")                                  \
-  XX( 1002, ENOMEM, "not enough memory")
-
-
-#define GEVENT_ERRNO_GEN(val, name, s) GEVENT_##name = val,
-typedef enum gevent_err_code_e {
-  GEVENT_ERRNO_MAP(GEVENT_ERRNO_GEN)
-  GEVENT_MAX_ERRORS
-} gevent_err_code;
-#undef GEVENT_ERRNO_GEN
-
-
 #define GEVENT_COTHREAD_IS_DEAD(t) ((t)->state == GEVENT_COTHREAD_DEAD)
 
 
@@ -72,19 +75,26 @@ struct gevent_cothread_s {
 
     /* storage for one-time operations */
     union {
-        struct init_s { /* GEVENT_COTHREAD_NEW */
+        /* GEVENT_COTHREAD_NEW */
+        struct init_s {
             gevent_cothread_fn run;
             void* args[6];
         } init;
-        ngx_queue_t ready;       /* GEVENT_COTHREAD_READY */
-        uv_timer_t timer;        /* GEVENT_WAITING_TIMER */
 
-        struct getaddrinfo_s {   /* GEVENT_WAITING_GETADDRINFO */
+        /* GEVENT_COTHREAD_READY */
+        ngx_queue_t ready;
+
+        /* GEVENT_WAITING_TIMER */
+        uv_timer_t timer;
+
+        /* GEVENT_WAITING_GETADDRINFO */
+        struct getaddrinfo_s {
             uv_getaddrinfo_t req;
             struct addrinfo** result;
         } getaddrinfo;
 
-        struct channel_s {       /* GEVENT_COTHREAD_CHANNEL_[RS] */
+        /* GEVENT_COTHREAD_CHANNEL_[RS] */
+        struct channel_s {
             ngx_queue_t queue;
             void* value;
         } channel;
@@ -101,18 +111,22 @@ struct gevent_cothread_s {
      * this must not be null; the default value is  */
     gevent_cothread_fn exit_fn;
 
-    /*
-     * - background flag: all handles/requests are temporarily unrefed before waiting for them
+    /* TODO:
+     * - background/daemon flag: all handles/requests are temporarily unrefed before waiting for them
      */
 };
 
 
 struct gevent_hub_s {
-    /* a list of ready-to-run cothreads */
-    ngx_queue_t ready;
-
     /* libuv event loop attached to this hub */
     uv_loop_t* loop;
+
+    /* initially 1; set to zero after uv_run() exits;
+     * QQQ wouldn't need this if libuv exposed uv__loop_alive(); */
+    int loop_alive;
+
+    /* a list of ready-to-run cothreads */
+    ngx_queue_t ready;
 
     /* the stacklet-related bookkeeping about the thread this hub is attached to */
     stacklet_thread_handle thread;
@@ -134,65 +148,54 @@ struct gevent_channel_s {
     gevent_hub* hub;
 };
 
-/* Return values:
- *
- * Most functions returning int return -1 on error and 0 on success (like libuv)
- * The exception is gevent_wait() which can also return 1.
- */
-
-/* Switching:
- * Most functions that can switch immediatelly to the target do switch immediatelly rather
- * then doing it via hub (spawn, channel_recv, channel_send).
- *
- * However, to avoid starving hub, this function maintain a count of switches that bypassed the hub.
- * When this count reaches certain value (GEVENT_SWITCH_COUNT) the hub is get switched to.
- * When it happens, a zero timer is started to ensure the event loop will not go to sleep.
- */
-
-#define GEVENT_SWITCH_COUNT 100
-
-
-int gevent_hub_init(gevent_hub* hub, uv_loop_t* loop);
+/* Returns the default hub (initialized with the default loop). */
 gevent_hub* gevent_default_hub(void);
 
-/* Initialize a cothread structure */
+
+/* Initialize a non-default hub.
+ *
+ * You don't need to use it for the default hub.
+ */
+int gevent_hub_init(gevent_hub* hub, uv_loop_t* loop);
+
+
+/* Initialize the cothread structure. */
 void gevent_cothread_init(gevent_hub* hub, gevent_cothread* t, gevent_cothread_fn run);
 
 /* Start a cothread.
- * Switches into it immediatelly (the current one is put in a READY queue) */
+ *
+ * Switch into it immediatelly (the current one is put in a READY queue).
+ */
 int gevent_cothread_spawn(gevent_cothread* t);
 
-/* Pause a cothread for a specified number of miliseconds */
+/* Pause the current cothread for a specified number of miliseconds */
 int gevent_sleep(gevent_hub* hub, int64_t timeout);
 
-/* Wait for the event loop to finish or for a specified number of miliseconds, whatever happens first.
- * Returns -1 on error, 0 if timeout expired, 1 if event loop has finished.
- */
+/* Wait for the event loop to finish or for a specified number of miliseconds, whatever happens first. */
 int gevent_wait(gevent_hub* hub, int64_t timeout);
 
 /* Initialize a channel structure */
 int gevent_channel_init(gevent_hub* hub, gevent_channel* ch);
 
-/* Send a value through a channel. Blocks until the value is actually consumed. */
+/* Send a value through a channel.
+ *
+ * If there's one or more receivers blocking on this channel, the
+ * first receiver in the queue is woken up and passed the value.
+ * The current cothread is added to READY queue in such case.
+ *
+ * If there there no receievers at the moment, the current cothread is paused.
+ */
 int gevent_channel_send(gevent_channel* ch, void* value);
 
-/* Receive a value through a channel. Blocks until
- * If there is one or more senders blocking on this channel, the oldest one is unlocked
+/* Receive a value through a channel.
  *
+ * If there's one or more senders blocking on this channel, the first one
+ * in the queue is unlocked, while the current cothread is added to the READY queue.
+ * The value of the sender is passed to *result.
+ *
+ * If there are no senders at the moment, the current cothread is paused.
  */
 int gevent_channel_receive(gevent_channel* ch, void** result);
-
-/*
- * Most functions return boolean: 0 for success and -1 for failure.
- * On error the user should then call gevent_last_error() to determine
- * the error code.
- *
- * libgevent adds a few more error codes on top of libuv's error codes
- * use these functions to make sure you can work with them
- */
-/* UV_EXTERN uv_err_t gevent_last_error(gevent_hub*); */
-UV_EXTERN const char* gevent_strerror(int code);
-UV_EXTERN const char* gevent_err_name(int code);
 
 /*
  * Synchronous getaddrinfo(3).
@@ -219,8 +222,5 @@ int gevent_getaddrinfo(gevent_hub* hub,
                        const char *service,
                        const struct addrinfo *hints,
                        struct addrinfo **res);
-
-/* low-level */
-int gevent_yield(gevent_hub* hub);
 
 #endif

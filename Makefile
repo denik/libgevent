@@ -23,7 +23,7 @@ endif
 libuv/libuv.a:
 	cd libuv && make libuv.a
 
-%.o: %.c
+gevent.o: gevent.c gevent.h
 	$(CC) $(CSTDFLAG) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 libgevent.a: gevent.o libuv/libuv.a

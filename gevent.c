@@ -2,39 +2,15 @@
 #include "stacklet/stacklet.c"
 #include <stdio.h>
 
+
+#ifndef GEVENT_SWITCH_COUNT
+#define GEVENT_SWITCH_COUNT 100
+#endif
+
+
 static gevent_hub default_hub_struct;
 static gevent_hub* default_hub_ptr = NULL;
-
 static int gevent_switch(gevent_cothread* t);
-
-
-#define UV_ERR_NAME_GEN(val, name, s) case UV_##name : return #name;
-#define GEVENT_ERR_NAME_GEN(val, name, s) case GEVENT_##name : return #name;
-const char* gevent_err_name(int code) {
-  switch (code) {
-    UV_ERRNO_MAP(UV_ERR_NAME_GEN)
-    GEVENT_ERRNO_MAP(GEVENT_ERR_NAME_GEN)
-    default:
-      assert(0);
-      return NULL;
-  }
-}
-#undef UV_ERR_NAME_GEN
-#undef GEVENT_ERR_NAME_GEN
-
-
-#define UV_STRERROR_GEN(val, name, s) case UV_##name : return s;
-#define GEVENT_STRERROR_GEN(val, name, s) case GEVENT_##name : return s;
-const char* gevent_strerror(int code) {
-  switch (code) {
-    UV_ERRNO_MAP(UV_STRERROR_GEN)
-    GEVENT_ERRNO_MAP(GEVENT_STRERROR_GEN)
-    default:
-      return "Unknown system error";
-  }
-}
-#undef UV_STRERROR_GEN
-#undef GEVENT_STRERROR_GEN
 
 
 static uv_err_t new_artificial_error(uv_err_code code) {
@@ -54,14 +30,12 @@ static int set_artificial_error(uv_loop_t* loop, uv_err_code code) {
 int gevent_hub_init(gevent_hub* hub, uv_loop_t* loop)
 {
     assert(hub && loop);
-    ngx_queue_init(&hub->ready);
     hub->loop = loop;
+    hub->loop_alive = 1;
+    ngx_queue_init(&hub->ready);
     hub->thread = stacklet_newthread();
     if (!hub->thread) {
-        /* XXX check if malloc sets errno; use it if it does
-           XXX return errno if set otherwise UV_ENOMEM?
-        */
-        return set_artificial_error(hub->loop, GEVENT_ENOMEM);
+        return -1;
     }
     hub->stacklet = NULL;
     gevent_cothread_init(hub, &hub->main, NULL);
@@ -137,7 +111,7 @@ void _after_switch(gevent_hub* hub, gevent_cothread* new, stacklet_handle source
     /* fprintf(stderr, "_after_switch hub=%x from=%x to=%x stacklet=%x\n", (unsigned)hub, (unsigned)hub->current, (unsigned)new, (unsigned)source); */
     assert(source);
     if (hub->current) {
-        /* we switched from another greenlet */
+        /* we switched from another cothread */
         if (source == EMPTY_STACKLET_HANDLE) {
             assert(hub->current != &hub->main);
             assert(hub->current->state == GEVENT_COTHREAD_CURRENT);
@@ -215,7 +189,9 @@ stacklet_handle hub_starter_fn(stacklet_handle source, void* data) {
     gevent_hub* hub = (gevent_hub*)data;
     assert(source);
     _after_switch(hub, NULL, source);
+    hub->loop_alive = 1;
     uv_run(hub->loop);
+    hub->loop_alive = 0;
     /* this is to make sure _get_next_stacklet won't return hub->stacklet */
     hub->stacklet = NULL;
     return _get_next_stacklet(hub);
@@ -262,7 +238,7 @@ static int gevent_switch(gevent_cothread* t) {
 
     if (!source) {
         _after_failed_switch(current);
-        return set_artificial_error(hub->loop, GEVENT_ENOMEM);
+        return set_artificial_error(hub->loop, UV_ENOMEM);
     }
 
     _after_switch(hub, current, source);
@@ -287,7 +263,7 @@ int gevent_switch_to_hub(gevent_hub* hub) {
 
     if (!source) {
         _after_failed_switch(current);
-        return set_artificial_error(hub->loop, GEVENT_ENOMEM);
+        return set_artificial_error(hub->loop, UV_ENOMEM);
     }
 
     _after_switch(hub, current, source);
@@ -358,15 +334,10 @@ int gevent_sleep(gevent_hub* hub, int64_t timeout) {
 
 
 int gevent_wait(gevent_hub* hub, int64_t timeout) {
-    int retcode;
     if (timeout > 0)
-        retcode = _sleep_internal(hub, timeout, 0);
+        return _sleep_internal(hub, timeout, 0);
     else
-        retcode = gevent_switch_to_hub(hub);
-    if (retcode == -1 && (gevent_err_code)uv_last_error(hub->loop).code == GEVENT_ENOLOOP) {
-        retcode = 0;
-    }
-    return retcode;
+        return gevent_switch_to_hub(hub);
 }
 
 
