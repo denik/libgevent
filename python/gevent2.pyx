@@ -30,7 +30,12 @@ cdef extern from "../gevent.c":
     void gevent_channel_init(gevent_hub* hub, gevent_channel* ch)
     int gevent_channel_send(gevent_channel* ch, object value)
     int gevent_channel_receive(gevent_channel* ch, void** result)
- 
+
+
+cdef extern from "socketmodule.c":
+    object pygevent_getaddrinfo(object)
+
+
 cdef extern from "callbacks.h":
     void cothread_init(gevent_cothread* t, object run, object args, object kwargs)
     void cothread_exit_fn(gevent_cothread* t)
@@ -70,22 +75,16 @@ cdef public class channel [object PyGeventChannelObject, type PyGeventChannel_Ty
             raise MemoryError
 
     def receive(self):
-        cdef void* obj 
+        cdef void* obj
         if gevent_channel_receive(&self.data, &obj):
             raise MemoryError
         return <object>obj
 
 
-
-def spawn(run, *args, **kwargs):
-    cdef cothread t = cothread(run, *args, **kwargs)
+def spawn(*args, **kwargs):
+    cdef cothread t = cothread(*args, **kwargs)
     t.spawn()
     return t
-
-
-# will crash if called in a cothread 
-def getcurrent():
-    return 
 
 
 def sleep(timeout):
@@ -102,3 +101,8 @@ def wait(timeout=None):
         c_timeout = timeout
     if gevent_wait(gevent_default_hub(), c_timeout):
         raise MemoryError
+
+
+def getaddrinfo(*args):
+    # XXX useless wrapper
+    return pygevent_getaddrinfo(args)

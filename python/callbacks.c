@@ -13,11 +13,14 @@ static void cothread_run(gevent_cothread* t) {
     GIL_DECLARE;
     PyObject *result, *run, *args, *kwargs;
     GIL_ENSURE;
-    assert(t->state == GEVENT_COTHREAD_NEW);
+    assert(t->state == GEVENT_COTHREAD_CURRENT);
 
     run = t->op.init.args[0];
     args = t->op.init.args[1];
     kwargs = t->op.init.args[2];
+    Py_INCREF(run);
+    Py_INCREF(args);
+    Py_XINCREF(kwargs);
     /* we do not incref this objects because they already we increfed by caller */
 
     result = PyObject_Call(run, args, kwargs);
