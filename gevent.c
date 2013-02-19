@@ -66,7 +66,6 @@ void gevent_cothread_init(gevent_hub* hub, gevent_cothread* t, gevent_cothread_f
     t->hub = hub;
     t->state = GEVENT_COTHREAD_NEW;
     t->op.init.run = run;
-    t->op_status = 0;
     t->stacklet = NULL; /* not needed, debug only */
     t->exit_fn = NULL;
 }
@@ -337,19 +336,25 @@ int gevent_wait(gevent_hub* hub, int64_t timeout) {
     if (timeout > 0)
         return _sleep_internal(hub, timeout, 0);
     else
-        return gevent_switch_to_hub(hub);
+        return gevent_yield(hub);
 }
 
 
-static void getaddrinfo_cb(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
-    gevent_cothread* blocked_cothread = (gevent_cothread*)req->data;
-    if (!blocked_cothread)
-        return;
-    if (blocked_cothread->state != GEVENT_WAITING_GETADDRINFO)
-        return;
-    *blocked_cothread->op.getaddrinfo.result = res;
-    if (gevent_switch(blocked_cothread)) {
-        assert(!"gevent_switch() failed");
+static void getaddrinfo_cb(uv_getaddrinfo_t* req, int error, struct addrinfo* res) {
+    gevent_cothread* my = (gevent_cothread*)req->data;
+    free(req);
+    if (my) {
+        assert(my->state == GEVENT_WAITING_GETADDRINFO);
+        my->op.getaddrinfo.res = res;
+        my->op.getaddrinfo.error = error;
+        if (gevent_switch(my)) {
+            assert(!"gevent_switch() failed");
+        }
+
+    }
+    else {
+        if (!error && res)
+            uv_freeaddrinfo(res);
     }
 }
 
@@ -359,20 +364,43 @@ int gevent_getaddrinfo(gevent_hub* hub,
                        const char *service,
                        const struct addrinfo *hints,
                        struct addrinfo **res) {
+    struct gevent_cothread_getaddrinfo_s* g;
     int retcode;
     gevent_cothread* current;
-    uv_getaddrinfo_t* req;
     current = get_current(hub);
-    req = &current->op.getaddrinfo.req;
-    retcode = uv_getaddrinfo(hub->loop, req, getaddrinfo_cb, node, service, hints);
-    if (retcode)
+
+    g = &current->op.getaddrinfo;
+
+    g->req = malloc(sizeof(uv_getaddrinfo_t));
+
+    if (!g->req)
+        return set_artificial_error(hub->loop, UV_ENOMEM);
+
+    retcode = uv_getaddrinfo(hub->loop, g->req, getaddrinfo_cb, node, service, hints);
+
+    if (retcode) {
+        free(g->req);
         return retcode;
-    req->data = current;
-    current->op.getaddrinfo.result = res;
+    }
+
+    /* uv_getaddrinfo succeeded, now it's a responsibility of getaddrinfo_cb to free req */
+
+    g->req->data = current;
     current->state = GEVENT_WAITING_GETADDRINFO;
-    retcode = gevent_switch_to_hub(hub);
-    req->data = NULL;
-    return retcode || current->op_status;
+
+    retcode = gevent_yield(hub);
+
+    if (retcode) {
+        /* failed to switch out */
+        g->req->data = NULL;
+        uv_cancel((uv_req_t*)g->req);
+        return retcode;
+    }
+
+    if (!g->error)
+        *res = g->res;
+
+    return g->error;
 }
 
 

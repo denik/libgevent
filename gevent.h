@@ -18,7 +18,7 @@
  *
  * TODO:
  * However, to avoid starving the event loop, a counter is maintained of how many switches were
- * done that bypassed the hub. When this count reaches certain value (GEVENT_SWITCH_COUNT, 
+ * done that bypassed the hub. When this count reaches certain value (GEVENT_SWITCH_COUNT,
  * default 100) a switch to the hub is forced.
  */
 
@@ -76,7 +76,7 @@ struct gevent_cothread_s {
     /* storage for one-time operations */
     union {
         /* GEVENT_COTHREAD_NEW */
-        struct init_s {
+        struct gevent_cothread_init_s {
             gevent_cothread_fn run;
             void* args[6];
         } init;
@@ -88,21 +88,18 @@ struct gevent_cothread_s {
         uv_timer_t timer;
 
         /* GEVENT_WAITING_GETADDRINFO */
-        struct getaddrinfo_s {
-            uv_getaddrinfo_t req;
-            struct addrinfo** result;
+        struct gevent_cothread_getaddrinfo_s {
+            uv_getaddrinfo_t* req;
+            struct addrinfo* res;
+            int error;
         } getaddrinfo;
 
         /* GEVENT_COTHREAD_CHANNEL_[RS] */
-        struct channel_s {
+        struct gevent_cothread_channel_s {
             ngx_queue_t queue;
             void* value;
         } channel;
-
-        /* a pointer to an external handle/request cothread is currently waiting on: GEVENT_WAITING_PTR_XXX */
-        void* external;
     } op;
-    int op_status; /* not everyone needs it */
 
     /* private: stored stack */
     stacklet_handle stacklet;
@@ -110,6 +107,13 @@ struct gevent_cothread_s {
     /* this will be called when a cothread has finished and will not be used by gevent anymore
      * this must not be null; the default value is  */
     gevent_cothread_fn exit_fn;
+
+    /* this is called before cothread is about to switch to another cothread */
+    gevent_cothread_fn switch_out;
+
+    /* this is called after cothread has been switched to */
+    gevent_cothread_fn switch_in;
+
 
     /* TODO:
      * - background/daemon flag: all handles/requests are temporarily unrefed before waiting for them
