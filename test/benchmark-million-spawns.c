@@ -37,7 +37,7 @@ int do_bench(gevent_cothread_fn func, char* explanation) {
   before = uv_hrtime();
   for (i = 0; i < NUM_COTHREADS; i++) {
       /* gevent_cothread_init(hub, &cothreads[i], func); */
-      SUCCESS(gevent_cothread_spawn(&cothreads[i]));
+      gevent_cothread_spawn(&cothreads[i]);
   }
   SUCCESS(gevent_wait(hub, 0));
   after = uv_hrtime();

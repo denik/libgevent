@@ -11,7 +11,7 @@ static gevent_channel ch;
 static void receiver(gevent_cothread* t) {
     void* data;
     ++count;
-    ZERO(gevent_channel_receive(&ch, &data));
+    gevent_channel_receive(&ch, &data);
     ASSERT(data);
     count += (int)data;
 }

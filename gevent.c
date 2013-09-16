@@ -10,7 +10,7 @@
 
 static gevent_hub default_hub_struct;
 static gevent_hub* default_hub_ptr = NULL;
-static int gevent_switch(gevent_cothread* t);
+static void gevent_switch(gevent_cothread* t);
 
 
 static uv_err_t new_artificial_error(uv_err_code code) {
@@ -88,13 +88,13 @@ static void _activate(gevent_cothread* t) {
 }
 
 
-int gevent_cothread_spawn(gevent_cothread* t) {
+void gevent_cothread_spawn(gevent_cothread* t) {
     gevent_cothread* current = get_current(t->hub);
     if (current) {
         _activate(current);
     }
     assert(t->state == GEVENT_COTHREAD_NEW);
-    return gevent_switch(t);
+    gevent_switch(t);
 }
 
 
@@ -214,7 +214,7 @@ static stacklet_handle cothread_starter_fn(stacklet_handle source, gevent_cothre
  * Can be used from anywhere - hub or cothread.
  * Upon exit hub->current->state is guaranteed to be GEVENT_COTHREAD_CURRENT.
  */
-static int gevent_switch(gevent_cothread* t) {
+static void gevent_switch(gevent_cothread* t) {
     stacklet_handle source;
     gevent_hub* hub = t->hub;
     gevent_cothread* current = hub->current;
@@ -228,6 +228,8 @@ static int gevent_switch(gevent_cothread* t) {
 
     if (t->state == GEVENT_COTHREAD_NEW) {
         assert(t->op.init.run);
+        /* XXX maybe it's possible to pre-allocate memory, so that stacklet_new never fails
+           XXX see what latest pypy does */
         source = stacklet_new(hub->thread, (stacklet_run_fn)cothread_starter_fn, t);
     }
     else {
@@ -236,16 +238,15 @@ static int gevent_switch(gevent_cothread* t) {
     }
 
     if (!source) {
-        _after_failed_switch(current);
-        return set_artificial_error(hub->loop, UV_ENOMEM);
+        assert(!"gevent_switch() failed");
+        abort();
     }
 
     _after_switch(hub, current, source);
-    return 0;
 }
 
 
-int gevent_switch_to_hub(gevent_hub* hub) {
+void gevent_switch_to_hub(gevent_hub* hub) {
     stacklet_handle source;
     gevent_cothread* current = hub->current;
     assert(current);
@@ -261,16 +262,15 @@ int gevent_switch_to_hub(gevent_hub* hub) {
     }
 
     if (!source) {
-        _after_failed_switch(current);
-        return set_artificial_error(hub->loop, UV_ENOMEM);
+        assert(!"gevent_switch_to_hub() failed");
+        abort();
     }
 
     _after_switch(hub, current, source);
-    return 0;
 }
 
 
-int gevent_yield(gevent_hub* hub) {
+void gevent_yield(gevent_hub* hub) {
     ngx_queue_t* q;
     gevent_cothread* tmp;
     if (!ngx_queue_empty(&hub->ready)) {
@@ -291,9 +291,7 @@ static void sleep_cb(uv_timer_t* handle, int status) {
     assert(paused->state == GEVENT_WAITING_TIMER);
     assert(paused->hub);
     assert(!paused->hub->current);
-    if (gevent_switch(paused)) {
-        assert(!"gevent_switch() failed");
-    }
+    gevent_switch(paused);
     /* QQQ do we need to check if switch is still needed?
     // QQQ in some cases - no: sleep() stops the timer and that must clear pending events
     // QQQ in some cases - yes: there's no way to cancel getaddrinfo
@@ -304,7 +302,6 @@ static void sleep_cb(uv_timer_t* handle, int status) {
 
 
 static int _sleep_internal(gevent_hub* hub, int64_t timeout, int ref) {
-    int retcode;
     gevent_cothread* current = get_current(hub);
     uv_timer_t* ponce = &hub->current->op.timer;
 
@@ -318,12 +315,12 @@ static int _sleep_internal(gevent_hub* hub, int64_t timeout, int ref) {
         uv_unref((uv_handle_t*)ponce);
 
     current->state = GEVENT_WAITING_TIMER;
-    retcode = gevent_yield(hub);
+    gevent_yield(hub);
     if (uv_timer_stop(ponce)) {
         assert(!"uv_timer_stop returned non-zero");
         return -1;
     }
-    return retcode;
+    return 0;
 }
 
 
@@ -335,8 +332,8 @@ int gevent_sleep(gevent_hub* hub, int64_t timeout) {
 int gevent_wait(gevent_hub* hub, int64_t timeout) {
     if (timeout > 0)
         return _sleep_internal(hub, timeout, 0);
-    else
-        return gevent_yield(hub);
+    gevent_yield(hub);
+    return 0;
 }
 
 
@@ -347,10 +344,7 @@ static void getaddrinfo_cb(uv_getaddrinfo_t* req, int error, struct addrinfo* re
         assert(my->state == GEVENT_WAITING_GETADDRINFO);
         my->op.getaddrinfo.res = res;
         my->op.getaddrinfo.error = error;
-        if (gevent_switch(my)) {
-            assert(!"gevent_switch() failed");
-        }
-
+        gevent_switch(my);
     }
     else {
         if (!error && res)
@@ -388,14 +382,7 @@ int gevent_getaddrinfo(gevent_hub* hub,
     g->req->data = current;
     current->state = GEVENT_WAITING_GETADDRINFO;
 
-    retcode = gevent_yield(hub);
-
-    if (retcode) {
-        /* failed to switch out */
-        g->req->data = NULL;
-        uv_cancel((uv_req_t*)g->req);
-        return retcode;
-    }
+    gevent_yield(hub);
 
     if (!g->error)
         *res = g->res;
@@ -404,16 +391,14 @@ int gevent_getaddrinfo(gevent_hub* hub,
 }
 
 
-int gevent_channel_init(gevent_hub* hub, gevent_channel* ch) {
+void gevent_channel_init(gevent_hub* hub, gevent_channel* ch) {
     ngx_queue_init(&ch->receivers);
     ngx_queue_init(&ch->senders);
     ch->hub = hub;
-    return 0;
 }
 
 
-int gevent_channel_receive(gevent_channel* ch, void** result) {
-    int retcode;
+void gevent_channel_receive(gevent_channel* ch, void** result) {
     gevent_cothread* current = get_current(ch->hub);
     /* what if current is NULL? */
     if (ngx_queue_empty(&ch->senders)) {
@@ -422,12 +407,9 @@ int gevent_channel_receive(gevent_channel* ch, void** result) {
         ngx_queue_init(q);
         ngx_queue_insert_tail(&ch->receivers, q);
         current->state = GEVENT_COTHREAD_CHANNEL_R;
-        retcode = gevent_yield(ch->hub);
+        gevent_yield(ch->hub);
         ngx_queue_remove(q);
-        if (retcode)
-            return retcode;
         *result = current->op.channel.value;
-        return 0;
     }
     else {
         /* a blocked sender is available - take its value and unlock it */
@@ -436,14 +418,12 @@ int gevent_channel_receive(gevent_channel* ch, void** result) {
         assert(sender_cothread->state == GEVENT_COTHREAD_CHANNEL_S);
         *result = sender_cothread->op.channel.value;
         _activate(current);
-        return gevent_switch(sender_cothread);
+        gevent_switch(sender_cothread);
     }
-    return retcode;
 }
 
 
-int gevent_channel_send(gevent_channel* ch, void* value) {
-    int retcode;
+void gevent_channel_send(gevent_channel* ch, void* value) {
     gevent_cothread* current = get_current(ch->hub);
     /* what if current is NULL? */
     if (ngx_queue_empty(&ch->receivers)) {
@@ -453,9 +433,8 @@ int gevent_channel_send(gevent_channel* ch, void* value) {
         ngx_queue_insert_tail(&ch->senders, q);
         current->op.channel.value = value;
         current->state = GEVENT_COTHREAD_CHANNEL_S;
-        retcode = gevent_yield(ch->hub);
+        gevent_yield(ch->hub);
         ngx_queue_remove(q);
-        return retcode;
     }
     else {
         ngx_queue_t* receiver_q = ngx_queue_head(&ch->receivers);
@@ -463,9 +442,8 @@ int gevent_channel_send(gevent_channel* ch, void* value) {
         assert(receiver_cothread->state == GEVENT_COTHREAD_CHANNEL_R);
         receiver_cothread->op.channel.value = value;
         _activate(current);
-        return gevent_switch(receiver_cothread);
+        gevent_switch(receiver_cothread);
     }
-    return retcode;
 }
 
 /* TODO: channel operation should switch to hub once in a while */

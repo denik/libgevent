@@ -22,14 +22,14 @@ cdef extern from "../gevent.c":
 
     gevent_hub* gevent_default_hub()
     void gevent_cothread_init(gevent_hub*, gevent_cothread*, void*)
-    int gevent_cothread_spawn(gevent_cothread*)
+    void gevent_cothread_spawn(gevent_cothread*)
 
     int gevent_sleep(gevent_hub* hub, long timeout)
     int gevent_wait(gevent_hub* hub, long timeout)
 
     void gevent_channel_init(gevent_hub* hub, gevent_channel* ch)
-    int gevent_channel_send(gevent_channel* ch, object value)
-    int gevent_channel_receive(gevent_channel* ch, void** result)
+    void gevent_channel_send(gevent_channel* ch, object value)
+    void gevent_channel_receive(gevent_channel* ch, void** result)
 
 
 cdef extern from "socketmodule.c":
@@ -52,10 +52,7 @@ cdef public class cothread [object PyGeventCothreadObject, type PyGeventCothread
             raise ValueError('This cothread already was spawned')
         Py_INCREF(self)
         self.data.exit_fn = <void*>cothread_exit_fn
-        if gevent_cothread_spawn(&self.data):
-            self.data.exit_fn = NULL
-            Py_DECREF(self)
-            raise MemoryError
+        gevent_cothread_spawn(&self.data)
 
     property state:
 
@@ -70,14 +67,11 @@ cdef public class channel [object PyGeventChannelObject, type PyGeventChannel_Ty
         gevent_channel_init(gevent_default_hub(), &self.data)
 
     def send(self, object item):
-        if gevent_channel_send(&self.data, item):
-            Py_DECREF(item)
-            raise MemoryError
+        gevent_channel_send(&self.data, item)
 
     def receive(self):
         cdef void* obj
-        if gevent_channel_receive(&self.data, &obj):
-            raise MemoryError
+        gevent_channel_receive(&self.data, &obj)
         return <object>obj
 
 

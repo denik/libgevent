@@ -25,7 +25,7 @@ TEST_IMPL(spawn_noop) {
     for (i=1; i < 10; ++i) {
         ASSERT_just_main(hub);
         gevent_cothread_init(hub, &t, noop);
-        SUCCESS(gevent_cothread_spawn(&t));
+        gevent_cothread_spawn(&t);
         ASSERT(count == i);
         ASSERT(t.state == GEVENT_COTHREAD_DEAD);
         /*ASSERT(!t.stacklet);*/
@@ -56,7 +56,7 @@ static void spawn_noop(gevent_cothread* t) {
     ASSERT(count == 0);
     count += 1;
     gevent_cothread_init(t->hub, &second, noop2);
-    SUCCESS(gevent_cothread_spawn(&second));
+    gevent_cothread_spawn(&second);
     ASSERT(count == 111);
     count += 1000;
     ASSERT(second.state == GEVENT_COTHREAD_DEAD);
@@ -69,7 +69,7 @@ TEST_IMPL(spawn_spawn_noop) {
     gevent_hub* hub = gevent_default_hub();
     ASSERT_just_main(hub);
     gevent_cothread_init(hub, &first, spawn_noop);
-    SUCCESS(gevent_cothread_spawn(&first));
+    gevent_cothread_spawn(&first);
     ASSERT(count == 11);
     count += 100;
     SUCCESS(gevent_sleep(hub, 0));
@@ -104,7 +104,7 @@ TEST_IMPL(spawn_sleep) {
     gevent_hub* hub = gevent_default_hub();
 
     gevent_cothread_init(hub, &t1, sleep0);
-    SUCCESS(gevent_cothread_spawn(&t1));
+    gevent_cothread_spawn(&t1);
     ASSERT(t1.state == GEVENT_WAITING_TIMER);
     ASSERT(count == 1);
     SUCCESS(gevent_sleep(hub, 1));

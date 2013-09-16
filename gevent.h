@@ -170,7 +170,7 @@ void gevent_cothread_init(gevent_hub* hub, gevent_cothread* t, gevent_cothread_f
  *
  * Switch into it immediatelly (the current one is put in a READY queue).
  */
-int gevent_cothread_spawn(gevent_cothread* t);
+void gevent_cothread_spawn(gevent_cothread* t);
 
 /* Pause the current cothread for a specified number of miliseconds */
 int gevent_sleep(gevent_hub* hub, int64_t timeout);
@@ -179,7 +179,7 @@ int gevent_sleep(gevent_hub* hub, int64_t timeout);
 int gevent_wait(gevent_hub* hub, int64_t timeout);
 
 /* Initialize a channel structure */
-int gevent_channel_init(gevent_hub* hub, gevent_channel* ch);
+void gevent_channel_init(gevent_hub* hub, gevent_channel* ch);
 
 /* Send a value through a channel.
  *
@@ -189,7 +189,7 @@ int gevent_channel_init(gevent_hub* hub, gevent_channel* ch);
  *
  * If there there no receievers at the moment, the current cothread is paused.
  */
-int gevent_channel_send(gevent_channel* ch, void* value);
+void gevent_channel_send(gevent_channel* ch, void* value);
 
 /* Receive a value through a channel.
  *
@@ -199,7 +199,7 @@ int gevent_channel_send(gevent_channel* ch, void* value);
  *
  * If there are no senders at the moment, the current cothread is paused.
  */
-int gevent_channel_receive(gevent_channel* ch, void** result);
+void gevent_channel_receive(gevent_channel* ch, void** result);
 
 /*
  * Synchronous getaddrinfo(3).

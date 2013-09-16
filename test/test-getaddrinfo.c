@@ -36,7 +36,7 @@ TEST_IMPL(getaddrinfo_concurrent) {
     ASSERT_just_main(hub);
     for (i=0; i<100; ++i) {
         gevent_cothread_init(hub, &t[i], run_getaddrinfo);
-        SUCCESS(gevent_cothread_spawn(&t[i]));
+        gevent_cothread_spawn(&t[i]);
         ASSERT(t[i].state == GEVENT_WAITING_GETADDRINFO);
     }
     SUCCESS(gevent_wait(hub, 0));
