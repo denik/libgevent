@@ -20,3 +20,6 @@ gevent.wait()
 took = time() - start
 assert not count, count
 print ('%s sends took %.3fs' % (N, took))
+
+
+# XXX if channel reference is lost, the cothread blocking on the channel should throw
