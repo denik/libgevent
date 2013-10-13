@@ -8,6 +8,7 @@ import sys
 import gevent2 as gevent
 import traceback
 from time import time
+import socket
 
 
 N = 100
@@ -21,12 +22,11 @@ def job(domain):
         try:
             ip = gevent.getaddrinfo(domain, 'http')
             print ('%s = %s' % (domain, ip))
-        #except socket.gaierror:
-            #ex = sys.exc_info()[1]
-            #print ('%s failed with %s' % (domain, ex))
+        except socket.gaierror:
+            ex = sys.exc_info()[1]
+            print ('%s failed with %s' % (domain, ex))
         except:
-            pass
-            #traceback.print_exc()
+            traceback.print_exc()
     finally:
         finished += 1
 
