@@ -20,6 +20,9 @@ cdef extern from "../gevent.c":
     ctypedef struct gevent_channel:
         pass
 
+    ctypedef struct gevent_semaphore:
+        int counter
+
     gevent_hub* gevent_default_hub()
     void gevent_cothread_init(gevent_hub*, gevent_cothread*, void*)
     void gevent_cothread_spawn(gevent_cothread*)
@@ -30,6 +33,10 @@ cdef extern from "../gevent.c":
     void gevent_channel_init(gevent_hub* hub, gevent_channel* ch)
     void gevent_channel_send(gevent_channel* ch, object value)
     void gevent_channel_receive(gevent_channel* ch, void** result)
+
+    void gevent_semaphore_init(gevent_hub* hub, gevent_semaphore* sem, int counter)
+    int gevent_semaphore_acquire(gevent_semaphore* sem)
+    int gevent_semaphore_release(gevent_semaphore* sem)
 
 
 cdef extern from "socketmodule.c":
@@ -73,6 +80,27 @@ cdef public class channel [object PyGeventChannelObject, type PyGeventChannel_Ty
         cdef void* obj
         gevent_channel_receive(&self.data, &obj)
         return <object>obj
+
+
+cdef public class semaphore [object PyGeventSemaphoreObject, type PyGeventSemaphore_Type]:
+    cdef gevent_semaphore data
+
+    def __cinit__(self, int count):
+        gevent_semaphore_init(gevent_default_hub(), &self.data, count)
+
+    def acquire(self):
+        gevent_semaphore_acquire(&self.data)
+
+    def release(self):
+        gevent_semaphore_release(&self.data)
+
+    property counter:
+
+        def __get__(self):
+            return self.data.counter
+
+        def __set__(self, int counter):
+            self.data.counter = counter
 
 
 def spawn(*args, **kwargs):

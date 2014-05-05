@@ -396,6 +396,35 @@ void gevent_channel_send(gevent_channel* ch, void* value) {
 
 /* TODO: channel operation should switch to hub once in a while */
 
+/* XXX temporary implementation using channel
+ * - state is no longer useful - does not report semaphore
+ * - channels pass value which is not used
+ * */
+void gevent_semaphore_init(gevent_hub* hub, gevent_semaphore* sem, int counter) {
+    sem->counter = counter;
+    gevent_channel_init(hub, &sem->channel);
+}
+
+int gevent_semaphore_acquire(gevent_semaphore* sem) {
+    if (sem->counter > 0) {
+        return --sem->counter;
+    }
+    void* ignored;
+    gevent_channel_receive(&sem->channel, &ignored);
+    return sem->counter;
+}
+
+int gevent_semaphore_release(gevent_semaphore* sem) {
+    if (!ngx_queue_empty(&sem->channel.receivers)) {
+        gevent_channel_send(&sem->channel, NULL);
+        return sem->counter;
+    }
+
+    return ++sem->counter;
+}
+
+
+
 /* getaddrinfo */
 
 static void getaddrinfo_cb(uv_getaddrinfo_t* req, int error, struct addrinfo* res) {

@@ -28,6 +28,7 @@ struct gevent_hub_s;
 typedef struct gevent_cothread_s gevent_cothread;
 typedef struct gevent_hub_s gevent_hub;
 typedef struct gevent_channel_s gevent_channel;
+typedef struct gevent_semaphore_s gevent_semaphore;
 typedef void (*gevent_cothread_fn)(gevent_cothread*);
 
 
@@ -152,6 +153,13 @@ struct gevent_channel_s {
     gevent_hub* hub;
 };
 
+struct gevent_semaphore_s {
+    gevent_channel channel;
+    int counter;
+};
+
+
+
 /* Returns the default hub (initialized with the default loop). */
 gevent_hub* gevent_default_hub(void);
 
@@ -200,6 +208,27 @@ void gevent_channel_send(gevent_channel* ch, void* value);
  * If there are no senders at the moment, the current cothread is paused.
  */
 void gevent_channel_receive(gevent_channel* ch, void** result);
+
+/* Initialize a semaphore structure */
+void gevent_semaphore_init(gevent_hub* hub, gevent_semaphore* sem, int counter);
+
+/* Acquire a semaphore
+ *
+ * Reduce counter by one, block to prevent it going below zero.
+ *
+ */
+int gevent_semaphore_acquire(gevent_semaphore* sem);
+
+/* Release a semaphore
+ *
+ * If there threads waiting for a semaphore to be acquired, unblock one.
+ *
+ * Otherwise increase counter by 1.
+ *
+ */
+int gevent_semaphore_release(gevent_semaphore* sem);
+
+
 
 /*
  * Synchronous getaddrinfo(3).
