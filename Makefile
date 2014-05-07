@@ -6,7 +6,7 @@ ifdef MSVC
 uname_S := MINGW
 endif
 
-CPPFLAGS += -Ilibuv/include -Ilibuv/include/uv-private -I.
+CPPFLAGS += -Ilibuv/include -Ilibuv/include/uv-private -I. -fPIC
 
 ifeq (Darwin,$(uname_S))
 SOEXT = dylib
