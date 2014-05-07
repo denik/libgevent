@@ -15,6 +15,6 @@ clean:
 
 test: gevent2.so
 	python test_spawn.py
-	python test_channel.py
+	python bench_channel.py
 
 .PHONY: clean all test
